@@ -4,7 +4,8 @@ import struct
 import argparse
 import uinput   #https://github.com/tuomasjjrasanen/python-uinput
 import logging
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.DEBUG, format='%(message)s')
+log= logging.getLogger(__name__)
 
 EVENT_AXIS, EVENT_BUTTON= 2,1 #joystick event type
 
@@ -57,7 +58,7 @@ class ShiftMapper( JoystickMapper ):
         if event_type==EVENT_BUTTON and ctrl_id==self.shift_button:
             if not self.toggle or (self.toggle and value==1):
                 self.shift_state= 1-self.shift_state #0->1, 1->0
-                logging.info("shift key at {}".format(self.shift_state))
+                log.info("shift key at {}".format(self.shift_state))
                 if not self.output_shift_key_events:
                     return None
         i= self.type_dict[event_type]
@@ -78,7 +79,7 @@ class VirtualJoystick(object):
 
     def send( self, event_type, ctrl_id, value ):
         '''the signature of this function follows event_loop.event_receiver'''
-        logging.debug("Emmiting {} {} {}".format(event_type, ctrl_id, value))
+        log.debug("Emmiting {} {} {}".format(event_type, ctrl_id, value))
         i= ctrl_id
         if event_type==EVENT_BUTTON:
             
@@ -104,7 +105,7 @@ def event_loop( dev_filename, event_receiver ):
         if not event_type in (EVENT_AXIS, EVENT_BUTTON):
             continue #event_type contains some strange stuff on the beggining of file
         value= axis_value if event_type==EVENT_AXIS else button_value
-        logging.debug("joystick received {} {} {}".format(event_type, ctrl_id, value))
+        log.debug("joystick received {} {} {}".format(event_type, ctrl_id, value))
         event_receiver( event_type, ctrl_id, value)
 
 def argument_parser():
@@ -130,12 +131,12 @@ if __name__=="__main__":
     parser= argument_parser()
     args= parser.parse_args()
     
-    if args.debug:
-        logging.basicConfig(level=logging.DEBUG)
+    log.setLevel( logging.DEBUG if args.debug else logging.WARNING)
 
     buttons_to_shift= set(range(args.n_buttons+1)) - set((args.shiftbtn,))
     axes_to_shift=    set(range(args.n_axes+1))
     
+    log.info("Creating virtual joystick")
     vj= VirtualJoystick( args.n_axes*2, args.n_buttons*2 )
     mapper= ShiftMapper( 
         receiver= vj.send, 
@@ -147,8 +148,10 @@ if __name__=="__main__":
         toggle=         args.toggle,
         output_shift_key_events= False)
     try:
+        log.info("Entering event loop")
         event_loop(args.device, mapper.receive)
     except KeyboardInterrupt:
+        log.info("Received KeyboardInterrupt. Exiting...")
         vj.destroy()
         exit()
 

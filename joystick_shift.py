@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
+import uinput   #https://github.com/tuomasjjrasanen/python-uinput
+
 import struct
 import argparse
-import uinput   #https://github.com/tuomasjjrasanen/python-uinput
 import logging
 logging.basicConfig(level=logging.DEBUG, format='%(message)s')
 log= logging.getLogger(__name__)
@@ -87,10 +88,6 @@ class VirtualJoystick(object):
         if event_type==EVENT_AXIS:
             self.device.emit( (uinput.ABS_X[0], uinput.ABS_X[1]+i), value )
 
-    def destroy(self):
-        self.device.destroy()
-        
-        
 def event_loop( dev_filename, event_receiver ):
     '''event loop that reads events from the physical joystick'''
     joystick_file= open(dev_filename)
@@ -152,6 +149,5 @@ if __name__=="__main__":
         event_loop(args.device, mapper.receive)
     except KeyboardInterrupt:
         log.info("Received KeyboardInterrupt. Exiting...")
-        vj.destroy()
         exit()
 

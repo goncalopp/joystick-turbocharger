@@ -2,11 +2,13 @@
 
 import uinput   #https://github.com/tuomasjjrasanen/python-uinput
 
+import system_setup
+import my_logging
+from my_logging import log
+
 import struct
 import argparse
-import logging
-logging.basicConfig(level=logging.DEBUG, format='%(message)s')
-log= logging.getLogger(__name__)
+
 
 EVENT_AXIS, EVENT_BUTTON= 2,1 #joystick event type
 
@@ -66,16 +68,16 @@ class ShiftMapper( JoystickMapper ):
         if self.shift_state and ctrl_id in self.shift_elements[i]:
             ctrl_id+= self.offsets[i]
         return event_type, ctrl_id, value
-        
 
 class VirtualJoystick(object):
-    def __init__(self, num_axes, num_buttons):
+    def __init__(self, num_axes, num_buttons, name="joystick_shift"):
         #see https://github.com/tuomasjjrasanen/python-uinput/blob/master/examples/joystick.py
         self.num_axes, self.num_buttons= num_axes, num_buttons
+        self.name= name
         self.events= \
             [(uinput.ABS_X[0], uinput.ABS_X[1]+i, -128, 127, 0, 0) for i in range(num_axes)] + \
             [(uinput.BTN_0[0], uinput.BTN_0[1]+i) for i in range(num_buttons)] 
-        self.device= uinput.Device( self.events, name="joystick_shift")
+        self.device= uinput.Device( self.events, name=self.name )
 
 
     def send( self, event_type, ctrl_id, value ):
@@ -88,9 +90,9 @@ class VirtualJoystick(object):
         if event_type==EVENT_AXIS:
             self.device.emit( (uinput.ABS_X[0], uinput.ABS_X[1]+i), value )
 
-def event_loop( dev_filename, event_receiver ):
-    '''event loop that reads events from the physical joystick'''
-    joystick_file= open(dev_filename)
+def event_loop( joystick_file, event_receiver ):
+    '''event loop that reads events from the physical joystick.
+    joystick_file is a actual file (object), not a file path.'''
     while True:
         data= joystick_file.read(8)
         d1,time,ignore1,ignore2,d2,d3,event_type,ctrl_id= data
@@ -124,19 +126,27 @@ def argument_parser():
     
     return parser
 
+
 if __name__=="__main__":
     parser= argument_parser()
     args= parser.parse_args()
     
-    log.setLevel( logging.DEBUG if args.debug else logging.WARNING)
+    my_logging.set_level( args.debug )
+    
+    #open file descriptors and configure linux
+    joystick_file= open( args.device )
+    system_setup.setup_system1( args.device )
+    log.info( "Creating virtual joystick" )
+    vj= VirtualJoystick( args.n_axes*2, args.n_buttons*2 )
+    system_setup.setup_system2( vj.name )
+
+    system_setup.drop_privileges()
 
     buttons_to_shift= set(range(args.n_buttons+1)) - set((args.shiftbtn,))
     axes_to_shift=    set(range(args.n_axes+1))
     
-    log.info("Creating virtual joystick")
-    vj= VirtualJoystick( args.n_axes*2, args.n_buttons*2 )
     mapper= ShiftMapper( 
-        receiver= vj.send, 
+        receiver= vj.send,    
         buttons_to_shift= buttons_to_shift, 
         axes_to_shift=  axes_to_shift, 
         button_offset=  args.n_buttons, 
@@ -146,8 +156,11 @@ if __name__=="__main__":
         output_shift_key_events= False)
     try:
         log.info("Entering event loop")
-        event_loop(args.device, mapper.receive)
+        event_loop(joystick_file, mapper.receive)
+        log.warning("Event loop finished???")
     except KeyboardInterrupt:
         log.info("Received KeyboardInterrupt. Exiting...")
-        exit()
+
+    system_setup.unsetup_system( args.device )
+    exit()
 
